@@ -1,8 +1,6 @@
-from urllib.parse import parse_qs
-from html import escape
-from io import BytesIO
 import pycurl
 import json
+from io import BytesIO
 import codecs
 
 
@@ -11,12 +9,11 @@ def curl_request(num, q='', api_url=''):
     buffer = BytesIO()
     c = pycurl.Curl()
     if api_url:
-        c.setopt(c.URL, api_url)
+        c.setopt(c.URL, f'{api_url}?page=1&per_page={str(num)}')
     elif q:
         c.setopt(c.URL,
-                 'https://api.github.com/search/repositories?q='
-                 + q + '&sort=created&order=desc?page=1&per_page='
-                 + str(num))
+                 f'https://api.github.com/search/repositories?q={q}&sort=created&order=desc?page=1&per_page={str(num)}'
+                 )
     else:
         print("Something wrong!  Check arguments.")
 
@@ -24,8 +21,7 @@ def curl_request(num, q='', api_url=''):
     c.perform()
     c.close()
 
-    body = buffer.getvalue()
-    values = json.loads(body)
+    values = json.loads(buffer.getvalue())
 
     return values
 
@@ -33,43 +29,41 @@ f = codecs.open("template.html", 'r')
 html = f.read()
 f.close()
 
+for i in html.split("</body>"):
+    if "</h1>" in i:
+        data = i[i.find("</h1>") + len("</h1>"):]
 
-def application(env, start_response):
-    # Returns a dictionary in which the values are lists
-    d = parse_qs(env['QUERY_STRING'])
+html = html.replace(data, '\n{placeholder}\n')
 
-    # As there can be more than one value for a variable then
-    # a list is provided as a default value.
-    search_term = d.get('search_term', [''])[0]  # Returns the first age value
+search_term = 'arrow'
+num_show = 5
+num_commits = 1
 
-    # prevent script injection by escape
-    search_term = escape(search_term)
+repos = curl_request(num_show, q=search_term)
 
-    #hobbies = [escape(hobby) for hobby in hobbies]
+# print(repos)
+n = 0
+for items in repos['items']:
+    n += 1
+    fill_body = {'num': n,
+                 'repository_name': items['name'],
+                 'created_at': items['created_at'],
+                 'owner_url': items['owner']['html_url'],
+                 'avatar_url': items['owner']['avatar_url'],
+                 'owner_login': items['owner']['login']}
+    # print(fill_body)
+    commits = curl_request(num_commits, api_url=items['commits_url'].replace('{/sha}', ''))
+    for commit in commits:
+        fill_body.update({
+            'sha': commit['sha'],
+            'commit_message': commit['commit']['message'],
+            'commit_author_name': commit['commit']['author']['name'],
+        })
+        print(fill_body)
 
-    fill = {'search_term': search_term,
-            'num': '',
-            'repository_name': '',
-            'created_at': '',
-            'owner_url': '',
-            'avatar_url': '',
-            'owner_login': '',
-            'sha': '',
-            'commit_message': '',
-            'commit_author_name': ''}
+fill_html = {'search_term': search_term, 'placeholder': data}
 
-    for i in html.split("</body>"):
-        if "</h1>" in i:
-            data = i[i.find("</h1>") + len("</h1>"):]
+print(fill_html)
 
-    html = html.replace(data, '\n{placeholder}\n')
 
-    body = html.format(**fill)
-
-    status = '200 OK'
-    headers = [
-        ('Content-Type', 'text/html')
-    ]
-    start_response(status, headers)
-
-    return [body.encode('utf8')]
+body = html.format(**fill_html)
