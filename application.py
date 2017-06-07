@@ -1,53 +1,38 @@
 from urllib.parse import parse_qs
 from html import escape
-import pycurl
 from io import BytesIO
+import pycurl
+import json
+import codecs
 
-buffer = BytesIO()
-c = pycurl.Curl()
-c.setopt(c.URL, 'http://pycurl.io/')
-c.setopt(c.WRITEDATA, buffer)
-c.perform()
-c.close()
 
-curl -H https://api.github.com/search/repositories?q=tetris&sort=created&order=desc?page=1&per_page=5 \
-"Accept: application/vnd.github.v3.full+json"
+def curl_request(num, q='', api_url=''):
 
-body = buffer.getvalue()
-# Body is a byte string.
-# We have to know the encoding in order to print it to a text file
-# such as standard output.
-print(body.decode('iso-8859-1'))
+    buffer = BytesIO()
+    c = pycurl.Curl()
+    if api_url:
+        c.setopt(c.URL, api_url)
+    elif q:
+        c.setopt(c.URL,
+                 'https://api.github.com/search/repositories?q='
+                 + q + '&sort=created&order=desc?page=1&per_page='
+                 + str(num))
+    else:
+        print("Something wrong!  Check arguments.")
 
-html = """
-<html>
-<body>
-   <form method="get" action="">
-        <p>
-           Age: <input type="text" name="age" value="%(age)s">
-        </p>
-        <p>
-            Hobbies:
-            <input
-                name="hobbies" type="checkbox" value="software"
-                %(checked-software)s
-            > Software
-            <input
-                name="hobbies" type="checkbox" value="tunning"
-                %(checked-tunning)s
-            > Auto Tunning
-        </p>
-        <p>
-            <input type="submit" value="Submit">
-        </p>
-    </form>
-    <p>
-        Age: %(age)s<br>
-        Hobbies: %(hobbies)s
-    </p>
-</body>
-</html>
-"""
+    c.setopt(c.WRITEDATA, buffer)
+    c.perform()
+    c.close()
+
+    body = buffer.getvalue()
+    values = json.loads(body)
+
+    return values
+
+f = codecs.open("template.html", 'r')
+html = f.read()
+f.close()
+
 
 def application(env, start_response):
     # Returns a dictionary in which the values are lists
@@ -55,19 +40,31 @@ def application(env, start_response):
 
     # As there can be more than one value for a variable then
     # a list is provided as a default value.
-    age = d.get('age', [''])[0]  # Returns the first age value
-    hobbies = d.get('hobbies', [])  # Returns a list of hobbies
+    search_term = d.get('search_term', [''])[0]  # Returns the first age value
 
-    # Always escape user input to avoid script injection
-    age = escape(age)
-    hobbies = [escape(hobby) for hobby in hobbies]
+    # prevent script injection by escape
+    search_term = escape(search_term)
 
-    body = html % {  # Fill the above html template in
-        'checked-software': ('', 'checked')['software' in hobbies],
-        'checked-tunning': ('', 'checked')['tunning' in hobbies],
-        'age': age or 'Empty',
-        'hobbies': ', '.join(hobbies or ['No Hobbies?'])
-    }
+    #hobbies = [escape(hobby) for hobby in hobbies]
+
+    fill = {'search_term': search_term,
+            'num': '',
+            'repository_name': '',
+            'created_at': '',
+            'owner_url': '',
+            'avatar_url': '',
+            'owner_login': '',
+            'sha': '',
+            'commit_message': '',
+            'commit_author_name': ''}
+
+    for i in html.split("</body>"):
+        if "</h1>" in i:
+            data = i[i.find("</h1>") + len("</h1>"):]
+
+    html = html.replace(data, '\n{placeholder}\n')
+
+    body = html.format(**fill)
 
     status = '200 OK'
     headers = [
